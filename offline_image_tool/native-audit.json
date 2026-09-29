@@ -1,0 +1,62 @@
+[
+  {
+    "wheel": "charset_normalizer-3.5.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "hf_xet-1.2.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "markupsafe-3.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "numpy-2.2.6-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "max_glibc_symbol": "2.17",
+    "max_glibcxx_symbol": "3.4"
+  },
+  {
+    "wheel": "pillow-12.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.27",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "pyyaml-6.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "regex-2026.9.10-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "rpds_py-2026.6.3-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "safetensors-0.8.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "0"
+  },
+  {
+    "wheel": "tokenizers-0.22.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "max_glibc_symbol": "2.16",
+    "max_glibcxx_symbol": "3.4"
+  },
+  {
+    "wheel": "torch-2.9.1+cpu-cp313-cp313-manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.28",
+    "max_glibcxx_symbol": "3.4.22"
+  },
+  {
+    "wheel": "torchvision-0.24.1+cpu-cp313-cp313-manylinux_2_28_x86_64.whl",
+    "max_glibc_symbol": "2.14",
+    "max_glibcxx_symbol": "3.4.21"
+  }
+]
