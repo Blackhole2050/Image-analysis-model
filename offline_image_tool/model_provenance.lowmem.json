@@ -1,0 +1,19 @@
+{
+  "profile": "low-memory printed-text OCR and geometric extraction; not a general vision-language model",
+  "engine": "RapidOCR 3.9.2",
+  "license": "Apache-2.0",
+  "runtime": "ONNX Runtime 1.23.2 CPU",
+  "detector": "PP-OCRv6 small",
+  "recognizer": "PP-OCRv6 small",
+  "model_weights": "Bundled inside the RapidOCR wheelhouse package; no first-run download.",
+  "source": "https://github.com/RapidAI/RapidOCR",
+  "python": "CPython 3.13.12",
+  "target": "Linux x86_64, glibc >= 2.28",
+  "memory": "No peak-memory benchmark has been completed on the target RHEL host. Input defaults to at most 1,048,576 pixels and is capped at 40 million pixels.",
+  "limitations": [
+    "Printed text OCR and table structure reconstruction use OCR coordinates and image geometry.",
+    "Flowchart labels are extracted, but arrow directions and branch connections are not inferred.",
+    "Graph labels and likely tick labels are extracted; plotted values are not digitized.",
+    "All output requires visual review."
+  ]
+}

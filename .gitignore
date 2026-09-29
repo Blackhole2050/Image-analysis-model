@@ -5,8 +5,11 @@ venv/
 test-env/
 offline_image_tool/models/
 offline_image_tool/wheelhouse/
+offline_image_tool/wheelhouse-lowmem/
 offline_image_tool/SHA256SUMS.json
+offline_image_tool/SHA256SUMS.lowmem.json
 offline_image_tool/opencode.generated.json
+offline_image_tool/opencode.lowmem.generated.json
 offline_image_tool/acceptance-results/
 offline_image_tool/validation_samples/
 *.zip
@@ -14,9 +17,9 @@ offline_image_tool/validation_samples/
 *.part*
 *.partial
 release-parts/
+temp-ocr-wheels/
 *.log
 user-image-test-*/
 .env
 .env.*
-
 

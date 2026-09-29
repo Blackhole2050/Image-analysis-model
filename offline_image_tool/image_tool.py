@@ -90,9 +90,10 @@ def parse_result(raw, kind="auto"):
     return value
 
 class Engine:
-    def __init__(self, threads=8, dtype="float32"):
+    def __init__(self, threads=8, dtype="float32", backend="qwen"):
         self.threads = threads
         self.dtype = dtype
+        self.backend = backend
         self.model = self.processor = None
 
     def load(self):
@@ -109,6 +110,9 @@ class Engine:
         ).eval()
 
     def generate(self, image, prompt, max_tokens):
+        if self.backend == "ocr":
+            from ocr_engine import extract
+            return json.dumps(extract(image, prompt), ensure_ascii=False), False
         import torch
         self.load()
         class Progress:
@@ -240,9 +244,9 @@ def analyze(engine, image_path, output_dir, kind="auto", verify=False, max_token
             verification = "second pass invalid; review required: " + str(exc)[:200]
         warnings.append(verification)
     result = {"schema_version": "1.0", "status": "needs_review", "source_file": source.name, "source_sha256": source_hash, "original_size": original_size, "processed_size": image.size, "crop": crop, "verification": verification, "warnings": warnings, "elapsed_seconds": round(time.monotonic() - started, 2), "data": data}
-    provenance = ROOT / "model_provenance.json"
+    provenance = ROOT / ("model_provenance.lowmem.json" if getattr(engine, "backend", "qwen") == "ocr" else "model_provenance.json")
     result["model"] = json.loads(provenance.read_text()) if provenance.is_file() else {"repository": "Qwen/Qwen3-VL-2B-Instruct"}
-    result["settings"] = {"dtype": getattr(engine, "dtype", "test"), "threads": getattr(engine, "threads", None), "max_tokens": max_tokens, "max_pixels": max_pixels, "kind": kind}
+    result["settings"] = {"backend": getattr(engine, "backend", "test"), "dtype": getattr(engine, "dtype", "test"), "threads": getattr(engine, "threads", None), "max_tokens": max_tokens, "max_pixels": max_pixels, "kind": kind}
     (out / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     save_workbook(result, out / "result.xlsx")
     return {"status": "needs_review", "output_directory": str(out), "json": str(out / "result.json"), "xlsx": str(out / "result.xlsx"), "verification": verification, "tables": len(data["tables"]), "flowcharts": len(data["flowcharts"]), "charts": len(data["charts"])}
@@ -270,7 +274,8 @@ def mcp(engine):
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
-                result = {"tools": [{"name": "analyze_image", "description": "Read a local English printed image using a bundled CPU vision model; export tables, flowchart steps/connections and plotted chart data to JSON/XLSX. Results need visual review. Output folder must not exist. CPU processing can take several minutes.", "inputSchema": TOOL_SCHEMA}]}
+                description = "Read a local English printed image using lightweight ONNX OCR and geometric rules; export recognized content to JSON/XLSX. Table cells are inferred from alignment. Flowchart labels are extracted but arrow connections are not inferred; chart labels are collected but plotted values are not digitized. Review all results."
+                result = {"tools": [{"name": "analyze_image", "description": description, "inputSchema": TOOL_SCHEMA}]}
             elif method == "tools/call":
                 try:
                     params = request.get("params", {})
@@ -297,6 +302,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32")
+    parser.add_argument("--backend", choices=["qwen", "ocr"], default="qwen", help="qwen loads the large vision model; ocr uses small ONNX OCR and geometry processing")
     sub = parser.add_subparsers(dest="command", required=True)
     a = sub.add_parser("analyze")
     a.add_argument("image_path")
@@ -313,18 +319,25 @@ def main():
     threads = args.pop("threads")
     if not 1 <= threads <= 64:
         parser.error("--threads must be 1..64")
-    engine = Engine(threads, args.pop("dtype"))
+    engine = Engine(threads, args.pop("dtype"), args.pop("backend"))
     command = args.pop("command")
     try:
         if command == "mcp":
             mcp(engine)
         elif command == "doctor":
-            import torch, torchvision, transformers, openpyxl
-            from transformers import AutoProcessor
-            AutoProcessor.from_pretrained(ROOT / "models/vision", local_files_only=True)
-            if args["load_model"]:
-                engine.load()
-            print(json.dumps({"python": sys.version, "torch": torch.__version__, "transformers": transformers.__version__, "processor": "loaded offline", "model": "loaded" if args["load_model"] else "not loaded", "target_python_matches": sys.version_info[:3] == (3, 13, 12)}, indent=2))
+            import openpyxl
+            if engine.backend == "ocr":
+                import onnxruntime, importlib.metadata, cv2, numpy
+                from ocr_engine import initialize
+                initialize()
+                print(json.dumps({"python": sys.version, "backend": "ocr", "onnxruntime": onnxruntime.__version__, "rapidocr": importlib.metadata.version("rapidocr"), "opencv": cv2.__version__, "numpy": numpy.__version__, "openpyxl": openpyxl.__version__, "ocr_models_loaded_offline": True, "target_python_matches": sys.version_info[:3] == (3, 13, 12)}, indent=2))
+            else:
+                import torch, torchvision, transformers
+                from transformers import AutoProcessor
+                AutoProcessor.from_pretrained(ROOT / "models/vision", local_files_only=True)
+                if args["load_model"]:
+                    engine.load()
+                print(json.dumps({"python": sys.version, "torch": torch.__version__, "transformers": transformers.__version__, "processor": "loaded offline", "model": "loaded" if args["load_model"] else "not loaded", "target_python_matches": sys.version_info[:3] == (3, 13, 12)}, indent=2))
         else:
             print(json.dumps(analyze(engine, **args), indent=2))
     except Exception as exc:
@@ -334,4 +347,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

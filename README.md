@@ -17,6 +17,29 @@ and chart labels/estimated values. Excel exports contain data sheets only, with 
 Read me worksheet. Warnings, model provenance and source hashes remain in JSON.
 Model weights are unchanged by this export-layout update.
 
+## Low-memory offline OCR profile
+
+For machines where loading the 2B vision model is terminated by a memory limit,
+the repository also provides a lightweight ONNX OCR profile. It uses RapidOCR's
+small English detector/recognizer weights and does not require PyTorch or
+Transformers. It exports detected printed text and simple aligned/grid tables to
+XLSX and connects to OpenCode as a local MCP tool. Flowchart step labels can be
+extracted, but arrows/branches are not traced. For graphs, labels/tick candidates
+are returned, but plotted numeric values are not digitized. Treat this as a
+low-memory text and geometry extractor, not as a replacement for the vision model.
+
+Its offline bundle is substantially smaller than the 2B model bundle:
+
+```bash
+python build_low_memory_bundle.py
+```
+
+See [the low-memory install and usage guide](offline_image_tool/README.lowmem.md).
+It includes CPython 3.13 Linux x86_64 wheels for glibc 2.28+, the OCR model weights,
+spreadsheet export support, licenses and checksum-verifying installer. The target
+RHEL host still needs an on-machine install/inference check; peak memory has not
+been benchmarked there.
+
 ## Source repository versus offline bundle
 
 **Cloning this repository does not provide a self-contained installation.** Model
@@ -102,4 +125,3 @@ weights, wheel files, or the large offline ZIP to normal Git history.
 Tool source: [MIT](LICENSE). Qwen model: Apache-2.0, with its license and pinned
 revision recorded separately. Third-party wheels retain their original license
 notices in the offline bundle.
-
