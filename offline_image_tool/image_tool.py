@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import time
 
@@ -22,10 +23,14 @@ def arr(items):
 TEXT = {"type": "string", "maxLength": 30000}
 VALUE = {"type": ["string", "null"], "maxLength": 30000}
 AXIS = obj({"label": TEXT, "scale": {"enum": ["linear", "logarithmic", "categorical", "unknown"]}, "ticks": arr(TEXT)})
+TABLE = obj({"title": TEXT, "header_rows": arr(arr(VALUE)), "rows": arr(arr(VALUE))})
+TABLE["properties"]["cell_colors"] = arr(arr({"type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$"}))
+FLOW_NODE = obj({"id": TEXT, "label": TEXT})
+FLOW_NODE["properties"]["bbox"] = {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 4, "maxItems": 4}
 SCHEMA = obj({
     "text": arr(TEXT),
-    "tables": arr(obj({"title": TEXT, "header_rows": arr(arr(VALUE)), "rows": arr(arr(VALUE))})),
-    "flowcharts": arr(obj({"title": TEXT, "nodes": arr(obj({"id": TEXT, "label": TEXT})), "edges": arr(obj({"source": TEXT, "target": TEXT, "label": TEXT}))})),
+    "tables": arr(TABLE),
+    "flowcharts": arr(obj({"title": TEXT, "nodes": arr(FLOW_NODE), "edges": arr(obj({"source": TEXT, "target": TEXT, "label": TEXT}))})),
     "charts": arr(obj({"title": TEXT, "x_axis": AXIS, "y_axis": AXIS, "points": arr(obj({"series": TEXT, "x": VALUE, "y": VALUE, "value_type": {"enum": ["labeled", "estimated", "unknown"]}}))})),
     "uncertainties": arr(TEXT),
 })
@@ -71,6 +76,11 @@ def parse_result(raw, kind="auto"):
             raise ValueError("Table rows have inconsistent widths; inspect raw response or crop the table.")
         if widths and max(widths) > 16384:
             raise ValueError("Too many table columns for Excel")
+        colors = table.get("cell_colors")
+        if colors is not None and (len(colors) != len(table["header_rows"] + table["rows"]) or
+                                   any(len(color_row) != len(data_row) for color_row, data_row in
+                                       zip(colors, table["header_rows"] + table["rows"]))):
+            raise ValueError("Table cell colors must match the table's row and column layout")
     for graph in value["flowcharts"]:
         ids = [node["id"] for node in graph["nodes"]]
         if len(set(ids)) != len(ids) or any(not x for x in ids):
@@ -139,10 +149,11 @@ class Engine:
 
 def save_workbook(result, path):
     from openpyxl import Workbook
+    from openpyxl.comments import Comment
     from openpyxl.styles import Font, PatternFill, Alignment
     wb = Workbook()
     wb.remove(wb.active)
-    def sheet(name, rows):
+    def sheet(name, rows, cell_fills=None):
         ws = wb.create_sheet(name)
         for row in rows:
             ws.append(row)
@@ -157,15 +168,39 @@ def save_workbook(result, path):
         for cell in ws[1]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="24466B")
+        if cell_fills:
+            for row_index, fill_row in enumerate(cell_fills, 1):
+                for column_index, color in enumerate(fill_row, 1):
+                    if not color:
+                        continue
+                    hex_color = color.lstrip("#").upper()
+                    if len(hex_color) != 6:
+                        continue
+                    cell = ws.cell(row_index, column_index)
+                    cell.fill = PatternFill("solid", fgColor=hex_color)
+                    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+                    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                    cell.font = Font(bold=(row_index == 1), color="000000" if luminance > 145 else "FFFFFF")
         ws.freeze_panes = "A2"
         for column in ws.columns:
             ws.column_dimensions[column[0].column_letter].width = min(60, max(16, max(len(str(c.value or "")) for c in column) + 2))
         return ws
     data = result["data"]
+    def mark_symbol_ambiguity(ws):
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and re.search(r"(?<!\w)(?:TT|T\s+T|π|Π)(?!\w)", cell.value):
+                    cell.comment = Comment(
+                        "Possible OCR ambiguity between TT and π. Verify this cell against input_used.png.",
+                        "Image analysis")
     for i, table in enumerate(data["tables"], 1):
-        sheet(f"Table {i}", (table["header_rows"] + table["rows"]) or [["No readable cells"]])
+        ws = sheet(f"Table {i}", (table["header_rows"] + table["rows"]) or [["No readable cells"]],
+                   table.get("cell_colors"))
+        mark_symbol_ambiguity(ws)
     for i, graph in enumerate(data["flowcharts"], 1):
-        sheet(f"Flow {i} nodes", [["ID", "Step text"]] + [[n["id"], n["label"]] for n in graph["nodes"]])
+        ws = sheet(f"Flow {i} nodes", [["ID", "Step text", "Left", "Top", "Right", "Bottom"]] +
+                   [[n["id"], n["label"], *(n.get("bbox") or [None] * 4)] for n in graph["nodes"]])
+        mark_symbol_ambiguity(ws)
         sheet(f"Flow {i} edges", [["Source", "Target", "Branch label"]] + [[e["source"], e["target"], e["label"]] for e in graph["edges"]])
     for i, chart in enumerate(data["charts"], 1):
         sheet(f"Chart {i}", [["Series", "X", "Y", "Value type"]] + [[p["series"], p["x"], p["y"], p["value_type"]] for p in chart["points"]])
@@ -179,6 +214,29 @@ def save_workbook(result, path):
         sheet("Data", [])
     wb.active = 0
     wb.save(path)
+
+def save_flowchart_preview(image_path, graph, path):
+    """Write a lightweight PNG showing detected OCR/node regions over the source."""
+    from PIL import Image, ImageDraw
+    image = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    colors = ("#E53935", "#1565C0", "#2E7D32", "#6A1B9A", "#EF6C00")
+    drawn = 0
+    for index, node in enumerate(graph.get("nodes", [])):
+        box = node.get("bbox")
+        if not isinstance(box, list) or len(box) != 4:
+            continue
+        left, top, right, bottom = (int(value) for value in box)
+        if right <= left or bottom <= top:
+            continue
+        color = colors[index % len(colors)]
+        draw.rectangle((left, top, right, bottom), outline=color, width=3)
+        draw.text((left + 2, max(0, top - 14)), node.get("id", f"N{index + 1}"), fill=color)
+        drawn += 1
+    if drawn:
+        image.save(path)
+        return True
+    return False
 
 def analyze(engine, image_path, output_dir, kind="auto", verify=False, max_tokens=4096, crop=None, max_pixels=1048576):
     from PIL import Image, ImageOps
@@ -243,13 +301,18 @@ def analyze(engine, image_path, output_dir, kind="auto", verify=False, max_token
         except Exception as exc:
             verification = "second pass invalid; review required: " + str(exc)[:200]
         warnings.append(verification)
-    result = {"schema_version": "1.0", "status": "needs_review", "source_file": source.name, "source_sha256": source_hash, "original_size": original_size, "processed_size": image.size, "crop": crop, "verification": verification, "warnings": warnings, "elapsed_seconds": round(time.monotonic() - started, 2), "data": data}
+    result = {"schema_version": "1.1", "status": "needs_review", "source_file": source.name, "source_sha256": source_hash, "original_size": original_size, "processed_size": image.size, "crop": crop, "verification": verification, "warnings": warnings, "elapsed_seconds": round(time.monotonic() - started, 2), "data": data}
     provenance = ROOT / ("model_provenance.lowmem.json" if getattr(engine, "backend", "qwen") == "ocr" else "model_provenance.json")
     result["model"] = json.loads(provenance.read_text()) if provenance.is_file() else {"repository": "Qwen/Qwen3-VL-2B-Instruct"}
     result["settings"] = {"backend": getattr(engine, "backend", "test"), "dtype": getattr(engine, "dtype", "test"), "threads": getattr(engine, "threads", None), "max_tokens": max_tokens, "max_pixels": max_pixels, "kind": kind}
     (out / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     save_workbook(result, out / "result.xlsx")
-    return {"status": "needs_review", "output_directory": str(out), "json": str(out / "result.json"), "xlsx": str(out / "result.xlsx"), "verification": verification, "tables": len(data["tables"]), "flowcharts": len(data["flowcharts"]), "charts": len(data["charts"])}
+    previews = []
+    for i, graph in enumerate(data["flowcharts"], 1):
+        preview = out / f"flowchart_{i}.png"
+        if save_flowchart_preview(out / "input_used.png", graph, preview):
+            previews.append(str(preview))
+    return {"status": "needs_review", "output_directory": str(out), "json": str(out / "result.json"), "xlsx": str(out / "result.xlsx"), "flowchart_pngs": previews, "verification": verification, "tables": len(data["tables"]), "flowcharts": len(data["flowcharts"]), "charts": len(data["charts"])}
 
 TOOL_SCHEMA = {"type": "object", "properties": {"image_path": {"type": "string"}, "output_dir": {"type": "string"}, "kind": {"enum": ["auto", "table", "flowchart", "chart", "text"]}, "verify": {"type": "boolean"}, "max_tokens": {"type": "integer", "minimum": 256, "maximum": 16384}, "crop": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4}}, "required": ["image_path", "output_dir"], "additionalProperties": False}
 
@@ -274,7 +337,7 @@ def mcp(engine):
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
-                description = "Read a local English printed image using lightweight ONNX OCR and geometric rules; export recognized content to JSON/XLSX. Table cells are inferred from alignment. Flowchart labels are extracted but arrow connections are not inferred; chart labels are collected but plotted values are not digitized. Review all results."
+                description = "Read local printed English with lightweight ONNX OCR. Color-aware ruled tables include estimated cell fills in JSON/XLSX; flowchart node regions include an annotated PNG and XLSX. Possible TT/π readings are flagged for human review; arrow connections and numeric chart series are not inferred. Review all results."
                 result = {"tools": [{"name": "analyze_image", "description": description, "inputSchema": TOOL_SCHEMA}]}
             elif method == "tools/call":
                 try:

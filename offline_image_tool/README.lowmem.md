@@ -7,17 +7,29 @@ contains its small detector and recognizer weights, so inference is offline.
 ## Supported output
 
 - Printed English text is recognized with word-region coordinates and confidence.
-- Tables are assembled from repeated text rows and aligned column starts, then
-  exported to XLSX. Merged, wrapped, borderless, or irregular cells need review.
-- Flowchart labels inside simple boxes are grouped into steps. Unboxed labels are
-  kept as separate steps. Arrow direction, branch labels and connections are not
-  inferred in this version.
+- Ruled tables use luminance and individual color channels for border detection.
+  For detected grid tables, the dominant interior cell color is recorded in JSON
+  and applied as an approximate Excel fill. Merged, wrapped, borderless, or
+  irregular cells still need review; subtle colors and gradients can be missed.
+- Flowchart text is grouped with detected node boxes where possible. The tool
+  saves a `flowchart_N.png` overlay and node/edge XLSX sheets. The overlay marks
+  detected text/node regions; it does not reconstruct arrow direction or branch
+  connections, which remain empty and must be reviewed.
 - Chart text and likely tick labels are extracted. Plotted data values are not
   digitized; no numeric series is invented.
 
 All extracted values are marked `needs_review`. OCR can still misread digits,
-punctuation, small labels, and unusual fonts. This is a lightweight OCR and
+punctuation, small labels, and unusual fonts. Suspected standalone `TT`/`π`
+readings are flagged in the JSON uncertainty list and as Excel cell comments;
+the OCR engine does not return alternate character candidates, so it cannot
+reliably decide between them automatically. This is a lightweight OCR and
 geometry pipeline rather than a general visual reasoning model.
+
+Color-channel table and flowchart processing is only enabled when the image
+contains visible chroma, so ordinary grayscale images keep the lighter path.
+The OCR network itself still runs once per image. Do not assume the previous
+30-images-in-10-minutes rate until the changed bundle has been timed on the
+same host and image set.
 
 ## Install on disconnected RHEL 8.10
 
@@ -44,7 +56,12 @@ uses two intra-op threads in the generated OpenCode configuration.
 ```
 
 Use `--kind flowchart`, `--kind chart`, or `--kind text` for focused extraction.
-The XLSX contains data sheets only; JSON carries warnings and confidence details.
+The XLSX contains extracted data and approximate table fill colors; flowchart
+node regions are also saved as PNG overlays. JSON carries warnings and confidence
+details. Color processing uses the existing OCR pass; no second recognition pass
+is added. This should preserve the current inference count, but the new image
+processing overhead and total batch time have not been benchmarked on your RHEL
+machine, so compare a similar 30-image batch before adopting it.
 The OpenCode MCP server always uses this OCR profile. The original `--backend qwen`
 mode still needs its separate multi-gigabyte model bundle and may use substantially
 more memory.

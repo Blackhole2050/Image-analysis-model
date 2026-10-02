@@ -92,6 +92,73 @@ class Tests(unittest.TestCase):
             self.assertIsNone(wb["Table 1"]["C2"].value)
             wb.close()
 
+    def test_color_table_round_trip_and_excel_fills(self):
+        from openpyxl import load_workbook
+        value = copy.deepcopy(BASE)
+        value["tables"] = [{"title": "", "header_rows": [["Type", "Value"]],
+                            "rows": [["π", "42"]],
+                            "cell_colors": [["#FFF2CC", "#DDEBF7"], [None, "#E2F0D9"]]}]
+        parsed = tool.parse_result(json.dumps(value), "table")
+        self.assertEqual(parsed["tables"][0]["cell_colors"][0][0], "#FFF2CC")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "colors.xlsx"
+            result = {"data": parsed}
+            tool.save_workbook(result, path)
+            wb = load_workbook(path)
+            self.assertEqual(wb["Table 1"]["A1"].fill.fgColor.rgb[-6:], "FFF2CC")
+            self.assertEqual(wb["Table 1"]["B2"].fill.fgColor.rgb[-6:], "E2F0D9")
+            wb.close()
+
+    def test_tt_pi_cell_gets_review_comment(self):
+        from openpyxl import load_workbook
+        value = copy.deepcopy(BASE)
+        value["tables"] = [{"title": "", "header_rows": [["Symbol"]], "rows": [["TT"]]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ambiguous.xlsx"
+            tool.save_workbook({"data": value}, path)
+            wb = load_workbook(path)
+            self.assertIn("TT and π", wb["Table 1"]["A2"].comment.text)
+            wb.close()
+
+    def test_reject_misaligned_cell_colors(self):
+        value = copy.deepcopy(BASE)
+        value["tables"] = [{"title": "", "header_rows": [["A", "B"]], "rows": [["1", "2"]],
+                            "cell_colors": [["#FFFFFF"]]}]
+        with self.assertRaises(ValueError):
+            tool.parse_result(json.dumps(value), "table")
+
+    def test_flowchart_png_preview_from_node_boxes(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "source.png", Path(tmp) / "preview.png"
+            Image.new("RGB", (80, 60), "white").save(source)
+            created = tool.save_flowchart_preview(source, {"nodes": [
+                {"id": "N1", "bbox": [10, 10, 50, 40]}]}, output)
+            self.assertTrue(created)
+            self.assertTrue(output.is_file())
+
+    def test_fill_sampler_reads_dominant_cell_color(self):
+        from PIL import Image, ImageDraw
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import ocr_engine
+        image = Image.new("RGB", (40, 30), "#FFF2CC")
+        ImageDraw.Draw(image).text((14, 10), "42", fill="black")
+        self.assertEqual(ocr_engine._cell_fill(image, 0, 0, 40, 30), "#FFF2CC")
+
+    def test_possible_tt_pi_is_flagged_without_replacing_text(self):
+        from PIL import Image
+        import ocr_engine
+        original_ocr = ocr_engine._ocr
+        ocr_engine._ocr = lambda image: [{"text": "TT", "score": 0.99,
+            "left": 10.0, "top": 12.0, "right": 30.0, "bottom": 25.0,
+            "cx": 20.0, "cy": 18.5}]
+        try:
+            data = ocr_engine.extract(Image.new("RGB", (40, 30), "white"), "Focus on text")
+        finally:
+            ocr_engine._ocr = original_ocr
+        self.assertEqual(data["text"], ["TT"])
+        self.assertTrue(any("TT/π" in warning for warning in data["uncertainties"]))
+
     def test_truncation_preserves_raw_without_workbook(self):
         from PIL import Image
         class Fake:
@@ -144,4 +211,3 @@ class Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

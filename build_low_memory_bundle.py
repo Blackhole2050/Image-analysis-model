@@ -1,5 +1,6 @@
 """Build the compact, offline ONNX OCR bundle on an internet-connected host."""
 from pathlib import Path
+import argparse
 import hashlib
 import json
 import subprocess
@@ -23,6 +24,10 @@ def sha(path):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--offline-existing-wheelhouse", action="store_true",
+                        help="Package existing wheels without using an index or network")
+    args = parser.parse_args()
     wheelhouse = ROOT / "wheelhouse-lowmem"
     wheelhouse.mkdir(exist_ok=True)
     command = [sys.executable, "-m", "pip", "download", "--dest", str(wheelhouse),
@@ -31,6 +36,8 @@ def main():
     for platform in ("manylinux_2_28_x86_64", "manylinux_2_27_x86_64", "manylinux2014_x86_64", "manylinux_2_17_x86_64"):
         command += ["--platform", platform]
     command += ["-r", str(LOCK)]
+    if args.offline_existing_wheelhouse:
+        command += ["--no-index", "--find-links", str(wheelhouse)]
     subprocess.run(command, check=True)
 
     files = [ROOT / name for name in SOURCES]
